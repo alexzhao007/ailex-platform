@@ -1,0 +1,51 @@
+# AiLex OpenClaw Configuration
+
+agent:
+  name: "AiLex"
+  description: "OpenClaw + 万量引擎 · 开源一体化 AI Agent 平台"
+  model: gpt-4o
+
+  # 技能注册
+  skills:
+    - search          # 网络搜索
+    - code            # 代码生成
+    - filesystem      # 文件操作
+    - browser         # 浏览器自动化
+    - memory          # 记忆系统
+
+  # 工具权限
+  tools:
+    shell: true
+    files: true
+    browser: true
+    mcp: true
+
+  # 模型配置
+  model_providers:
+    millionengine:
+      base_url: http://gateway:8080/v1
+      api_key: "${MMI_API_KEY}"
+      models:
+        - gpt-4o
+        - gpt-4o-mini
+        - claude-sonnet-4-20250514
+        - claude-haiku-4-5
+        - deepseek-v4-flash
+        - deepseek-v4-pro
+
+  # 默认渠道
+  channels:
+    web:
+      enabled: true
+      port: 3000
+    api:
+      enabled: true
+
+  # 记忆
+  memory:
+    type: local
+    path: /data/memory
+
+  # 日志
+  logging:
+    level: info

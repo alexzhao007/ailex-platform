@@ -1,0 +1,86 @@
+# AiLex Gateway Configuration
+# 万量引擎 AI 网关路由策略
+
+routing:
+  # 默认路由
+  default_provider: millionengine
+  default_model: gpt-4o
+  fallback_model: deepseek-v4-flash
+
+  # 模型分类路由
+  model_tiers:
+    fast:
+      models:
+        - gpt-4o-mini
+        - deepseek-v4-flash
+        - claude-haiku-4-5
+      budget_ratio: 0.3  # 快模型占总成本目标 30%
+
+    standard:
+      models:
+        - gpt-4o
+        - deepseek-v4-pro
+        - claude-sonnet-4
+      budget_ratio: 0.5  # 标准模型占 50%
+
+    powerful:
+      models:
+        - claude-sonnet-4-20250514
+        - claude-opus-4-7
+        - gpt-5.2-codex
+        - deepseek-r1
+      budget_ratio: 0.2  # 高质量模型占 20%
+
+  # 任务类型到模型映射
+  task_routing:
+    chat: gpt-4o
+    code: claude-sonnet-4-20250514
+    reasoning: deepseek-r1
+    translation: gpt-4o-mini
+    image: gpt-4o
+    audio: gpt-4o-audio-preview
+    embedding: text-embedding-3-small
+
+# 成本控制
+cost_control:
+  monthly_budget_usd: 1000
+  alert_threshold: 0.8  # 使用 80% 发出告警
+  max_concurrent: 50
+  rate_limit:
+    requests_per_minute: 500
+    tokens_per_minute: 1000000
+
+# API Key 管理（多条 Key 自动负载均衡）
+keys:
+  millionengine:
+    - key: "${MMI_API_KEY}"
+      name: "primary"
+      weight: 10
+      # 可添加备用 Key
+      # - key: "sk-xxxxx"
+      #   name: "secondary"
+      #   weight: 5
+
+# 日志与监控
+logging:
+  level: info
+  save_traffic_logs: true
+  log_retention_days: 30
+
+# OpenAI 兼容 API 配置
+api:
+  port: 8080
+  host: 0.0.0.0
+  # CORS
+  cors_origins:
+    - "*"
+  # API 认证
+  auth:
+    enabled: true
+    tokens:
+      - name: "admin"
+        token: "${ADMIN_PASSWORD:-ailex2026}"
+        rate_limit: 1000
+      - name: "user"
+        token: "user-token-here"
+        rate_limit: 100

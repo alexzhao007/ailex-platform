@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiLex Platform — 管理面板</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e1e4ed;--text2:#8b8fa3;--accent:#3b82f6;--accent2:#22c55e;--red:#ef4444;--orange:#f59e0b}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{background:var(--card);border-bottom:1px solid var(--border);padding:16px 32px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,#3b82f6,#22c55e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header .status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)}
+header .status .dot{width:8px;height:8px;border-radius:50%;background:var(--accent2);display:inline-block}
+main{max-width:1400px;margin:0 auto;padding:24px 32px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+.card .label{font-size:12px;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.card .value{font-size:28px;font-weight:700}
+.card .sub{font-size:12px;color:var(--text2);margin-top:4px}
+.section{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:24px}
+.section h2{font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.model-list{display:flex;flex-wrap:wrap;gap:8px}
+.model-tag{background:rgba(59,130,246,0.12);color:var(--accent);padding:6px 14px;border-radius:20px;font-size:12px;border:1px solid rgba(59,130,246,0.2)}
+.model-tag.used{background:rgba(34,197,94,0.12);color:var(--accent2);border-color:rgba(34,197,94,0.2)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border)}
+th{color:var(--text2);font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.5px}
+.alert{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:12px 16px;font-size:13px;color:var(--red);margin-bottom:16px;display:none}
+footer{text-align:center;padding:24px;color:var(--text2);font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ AiLex Platform</h1>
+  <div class="status">
+    <span class="dot"></span>
+    <span id="status-text">Connecting...</span>
+  </div>
+</header>
+
+<main>
+  <div class="alert" id="alert"></div>
+
+  <div class="grid" id="stats-grid">
+    <div class="card">
+      <div class="label">Total Requests</div>
+      <div class="value" id="stat-requests">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Total Tokens</div>
+      <div class="value" id="stat-tokens">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Errors</div>
+      <div class="value" id="stat-errors">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Est. Cost</div>
+      <div class="value" id="stat-cost">$—</div>
+    </div>
+    <div class="card">
+      <div class="label">Uptime</div>
+      <div class="value" id="stat-uptime">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Models Available</div>
+      <div class="value" id="stat-models">—</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>📊 Models Used (Ranked)</h2>
+    <table>
+      <thead><tr><th>Model</th><th>Requests</th><th>%</th></tr></thead>
+      <tbody id="models-table"></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>🔧 Available Models</h2>
+    <div class="model-list" id="model-list"></div>
+  </div>
+
+  <div class="section">
+    <h2>⚙️ Quick Actions</h2>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+      <div class="card" onclick="testAPI()" style="cursor:pointer">
+        <div class="label">🔍 Test API</div>
+        <div class="value" style="font-size:14px" id="test-result">Click to test</div>
+      </div>
+      <div class="card" onclick="testClaude()" style="cursor:pointer">
+        <div class="label">🧠 Test Claude Sonnet 4</div>
+        <div class="value" style="font-size:14px" id="test-claude">Click to test</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  AiLex Platform v2.0 · Open Source · <a href="https://millionengine.com" target="_blank" style="color:var(--accent)">万量引擎</a>
+</footer>
+
+<script>
+const GATEWAY_URL = window.location.origin;
+
+async function api(path) {
+  const r = await fetch(GATEWAY_URL + '/api' + path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function fetchModels() {
+  const r = await fetch(GATEWAY_URL + '/api/v1/models');
+  return r.ok ? r.json() : null;
+}
+
+async function loadDashboard() {
+  try {
+    document.getElementById('status-text').textContent = 'Connected';
+    const stats = await api('/dashboard/stats');
+    
+    document.getElementById('stat-requests').textContent = (stats.total_requests || 0).toLocaleString();
+    document.getElementById('stat-tokens').textContent = (stats.total_tokens || 0).toLocaleString();
+    document.getElementById('stat-errors').textContent = (stats.total_errors || 0).toLocaleString();
+    document.getElementById('stat-cost').textContent = '$' + (stats.estimated_cost_usd || 0).toFixed(2);
+    document.getElementById('stat-uptime').textContent = (stats.uptime_hours || 0) + 'h';
+    document.getElementById('stat-models').textContent = Object.keys(stats.models_available || {}).length;
+
+    // Models table
+    const tbody = document.getElementById('models-table');
+    tbody.innerHTML = '';
+    const ranked = stats.models_ranked || [];
+    const total = ranked.reduce((a, r) => a + r[1], 0) || 1;
+    ranked.forEach(([model, count]) => {
+      const pct = ((count / total) * 100).toFixed(1);
+      tbody.innerHTML += `<tr><td>${model}</td><td>${count}</td><td>${pct}%</td></tr>`;
+    });
+    if (ranked.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text2);text-align:center">No requests yet</td></tr>';
+    }
+
+    // Available models
+    const ml = document.getElementById('model-list');
+    const models = stats.models_available || {};
+    const usedModels = new Set(ranked.map(r => r[0]));
+    ml.innerHTML = Object.entries(models).map(([task, model]) =>
+      `<span class="model-tag ${usedModels.has(model) ? 'used' : ''}">${task}: ${model}</span>`
+    ).join('');
+
+  } catch (e) {
+    document.getElementById('status-text').textContent = 'Disconnected';
+    document.getElementById('alert').style.display = 'block';
+    document.getElementById('alert').textContent = '⚠ Failed to connect to gateway: ' + e.message;
+  }
+}
+
+async function testAPI() {
+  const el = document.getElementById('test-result');
+  el.textContent = 'Testing...';
+  try {
+    const r = await fetch(GATEWAY_URL + '/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model: 'gpt-4o', messages: [{role: 'user', content: 'Say hi in 2 words'}]})
+    });
+    const data = await r.json();
+    el.textContent = '✅ ' + (data.choices?.[0]?.message?.content || 'ok');
+  } catch (e) {
+    el.textContent = '❌ ' + e.message;
+  }
+}
+
+async function testClaude() {
+  const el = document.getElementById('test-claude');
+  el.textContent = 'Testing...';
+  try {
+    const r = await fetch(GATEWAY_URL + '/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{role: 'user', content: 'Say hi in 2 words'}]
+      })
+    });
+    const data = await r.json();
+    el.textContent = '✅ ' + (data.choices?.[0]?.message?.content || 'ok');
+  } catch (e) {
+    el.textContent = '❌ ' + e.message;
+  }
+}
+
+loadDashboard();
+setInterval(loadDashboard, 10000);
+</script>
+</body>
+</html>

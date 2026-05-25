@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  # =================================================
+  # AiLex Gateway — 万量引擎 API 路由器
+  # =================================================
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: ailex-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      - MMI_API_KEY=${MMI_API_KEY}
+      - MMI_BASE_URL=${MMI_BASE_URL:-https://millionengine.com/v1}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-gpt-4o}
+      - FAST_MODEL=${FAST_MODEL:-gpt-4o-mini}
+      - POWERFUL_MODEL=${POWERFUL_MODEL:-claude-sonnet-4-20250514}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ailex2026}
+    volumes:
+      - ./gateway/config.yaml:/app/config.yaml
+      - gateway_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - ailex
+
+  # =================================================
+  # AiLex OpenClaw — Agent 核心引擎
+  # =================================================
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: ailex-openclaw
+    ports:
+      - "${OPENCLAW_PORT:-3000}:3000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    environment:
+      - OPENCLAW_API_KEY=${MMI_API_KEY}
+      - OPENCLAW_BASE_URL=http://gateway:8080/v1
+      - OPENCLAW_MODEL=${DEFAULT_MODEL:-gpt-4o}
+      - OPENCLAW_DATA_DIR=/data
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./openclaw/config.yaml:/app/config.yaml
+      - ./openclaw/skills:/app/skills
+      - openclaw_data:/data
+    restart: unless-stopped
+    networks:
+      - ailex
+
+  # =================================================
+  # AiLex Web UI — 管理面板
+  # =================================================
+  web-ui:
+    build:
+      context: ./web-ui
+      dockerfile: Dockerfile
+    container_name: ailex-web-ui
+    ports:
+      - "${UI_PORT:-3001}:80"
+    depends_on:
+      - gateway
+      - openclaw
+    environment:
+      - GATEWAY_URL=http://gateway:8080
+      - OPENCLAW_URL=http://openclaw:3000
+    restart: unless-stopped
+    networks:
+      - ailex
+
+  # =================================================
+  # AiLex Memory — 超长记忆体服务
+  # =================================================
+  memory:
+    build:
+      context: ./memory
+      dockerfile: Dockerfile
+    container_name: ailex-memory
+    ports:
+      - "${MEMORY_PORT:-8090}:8090"
+    environment:
+      - MEMORY_DB_PATH=/app/data/memory.db
+      - VECTOR_DB_PATH=/app/data/vectors.db
+      - SHORT_TERM_SIZE=${SHORT_TERM_SIZE:-20}
+      - SUMMARIZE_THRESHOLD=${SUMMARIZE_THRESHOLD:-50}
+    volumes:
+      - memory_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - ailex
+
+  # =================================================
+  # AiLex Media — 视频/音频生成服务
+  # =================================================
+  media:
+    build:
+      context: ./media
+      dockerfile: Dockerfile
+    container_name: ailex-media
+    ports:
+      - "${MEDIA_PORT:-8091}:8091"
+    environment:
+      - MMI_API_KEY=${MMI_API_KEY}
+      - MMI_BASE_URL=${MMI_BASE_URL:-https://millionengine.com/v1}
+      - MEDIA_STORAGE=/app/data/media
+    volumes:
+      - media_data:/app/data
+    restart: unless-stopped
+    
+  # =================================================
+  # AiLex Billing — 支付与 API Key 授权系统
+  # =================================================
+  billing:
+    build:
+      context: ./billing
+      dockerfile: Dockerfile
+    container_name: ailex-billing
+    ports:
+      - "${BILLING_PORT:-8094}:8094"
+    environment:
+      - BILLING_DB_PATH=/app/data/billing.db
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - PAYMENT_PROVIDER=${PAYMENT_PROVIDER:-none}
+    volumes:
+      - billing_data:/app/data
+    restart: unless-stopped
+    networks:
+      - ailex
+
+networks:
+      - ailex
+
+
+  # ==================================
+  billing_data:
+volumes:
+  gateway_data:
+  openclaw_data:
+  memory_data:
+  media_data:
+
+  learn_data:
+  secure_data:

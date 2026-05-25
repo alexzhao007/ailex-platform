@@ -355,3 +355,31 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("MEDIA_PORT", "8091"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+
+# ══════════════════════════════════════
+# Hollywood CG Prompt 模板端点
+# ══════════════════════════════════════
+
+MARVIS_HOLLYWOOD_PROMPT = """15 秒 4K 60 帧 好莱坞级游戏CG 技能动画，女帝，冷色调，极致冰霜特效，冰焰环绕，FPV第一人称运镜极度丝滑，无穿模，无文字
+
+0-3 秒:FPV从女帝身后低空掠过，视角旋转跟随女帝缓步走向前方悬浮的寒冰长弓。空间暗黑空灵，寒冰粒子在地面缓缓流动，镜头紧贴女帝，营造第一人称压迫感。
+
+3-6秒: FPV快速绕射至女帝正面，定格于女帝伸出的单手，稳稳握住悬浮的寒冰长弓。弓身瞬间被幽蓝冰焰轻柔缠绕，冰纹流动发光，寒气粒子在镜头前蒸腾。(此时镜头贴弓，近距离展示质感)
+
+6-10 秒:FPV迅速拉远成为中景，切入女帝全身发力动作。女帝单手持弓，重心后移，强力拉满弓弦。镜头随动作轻微平移，保持第一人称稳定感箭尖寒芒闪烁，冰焰暴涨，风压吹动镜头视角的发丝光晕。
+
+10-13 秒:放箭瞬间→FPV 第一人称慢镜头特写女帝单手释放冰箭，FPV视角直接跟随冰箭冲出。冰箭带着幽蓝冰焰划破空间，FPV顶着箭尾冲刺，镜头高速俯冲，带来极强速度感。箭身拉出超长粒子湍流轨迹，视觉冲击力拉满。
+
+13-15 秒: FPV急停，缓缓拉升，俯瞰远方爆发的寒气能量圈。漫天寒冰粒子与冰晶柔和扩散，冰雾翻涌，体积光穿透镜头。画面残留淡蓝微光，第一人称视角慢慢虚化收束。"""
+
+@app.get("/prompts/hollywood-cg")
+async def get_hollywood_prompt():
+    """获取好莱坞级游戏CG Prompt模板"""
+    return {
+        "name": "Seedance 2.0 好莱坞游戏 CG",
+        "prompt": MARVIS_HOLLYWOOD_PROMPT,
+        "duration": 15,
+        "style": "cinematic",
+        "recommended_models": ["kling-video", "veo3.1", "viduq3-pro", "sora-2"],
+        "note": "可用模型: Kling 2.0 / Veo 3.1 / Vidu Q3 Pro / Sora 2",
+    }

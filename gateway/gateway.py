@@ -4,8 +4,11 @@ AiLex Gateway — 万量引擎 API 路由器
 12-Factor Agents 合规设计：
   - Factor 1 ✅ NL → Tool Calls
   - Factor 4 ✅ Tools as Structured Outputs
+  - Factor 7 ✅ Human-in-the-Loop (v3.2)
   - Factor 8 ✅ Own Control Flow
   - Factor 9 ✅ Compact Errors (v2.1)
+  - Factor 10 ✅ Orchestrator (v3.2)
+  - Factor 11 ✅ Webhook Triggers (v3.2)
   - Factor 12 ✅ Stateless Reducer
 """
 
@@ -13,6 +16,8 @@ import os
 import json
 import time
 import asyncio
+import hmac
+import hashlib
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 
@@ -251,6 +256,234 @@ async def embeddings(request: Request):
         if resp.status_code != 200:
             raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
         return resp.json()
+
+# ══════════════════════════════════════
+# Factor 7: Human-in-the-Loop — 人类介入审批
+# ══════════════════════════════════════
+
+PENDING_APPROVALS = {}  # approval_id -> request data
+
+class ApprovalRequest(BaseModel):
+    action: str
+    context: dict
+    agent_name: Optional[str] = None
+    callback_url: Optional[str] = None
+    timeout_seconds: int = 300
+
+@app.post("/v1/approval/request")
+async def request_approval(req: ApprovalRequest):
+    """Agent 请求人工审批 — 挂起执行等待审批"""
+    approval_id = f"aprv_{hashlib.md5(f'{time.time()}{req.action}'.encode()).hexdigest()[:8]}"
+    now = time.time()
+    PENDING_APPROVALS[approval_id] = {
+        "id": approval_id,
+        "action": req.action,
+        "context": req.context.model_dump() if hasattr(req.context, 'model_dump') else req.context,
+        "agent": req.agent_name or "unknown",
+        "callback_url": req.callback_url,
+        "status": "pending",
+        "created_at": now,
+        "expires_at": now + req.timeout_seconds,
+    }
+    return {
+        "approval_id": approval_id,
+        "status": "pending",
+        "message": f"Approval requested for: {req.action}",
+        "note": "Use POST /v1/approval/respond to approve or reject",
+    }
+
+class ApprovalResponse(BaseModel):
+    approval_id: str
+    approved: bool
+    feedback: Optional[str] = None
+
+@app.post("/v1/approval/respond")
+async def respond_approval(req: ApprovalResponse):
+    """人工响应审批"""
+    approval = PENDING_APPROVALS.get(req.approval_id)
+    if not approval:
+        raise HTTPException(status_code=404, detail=f"Approval {req.approval_id} not found or expired")
+    
+    if approval["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Already {approval['status']}")
+    
+    now = time.time()
+    if now > approval["expires_at"]:
+        approval["status"] = "expired"
+        return {"status": "expired", "message": "Approval request expired"}
+    
+    approval["status"] = "approved" if req.approved else "rejected"
+    approval["responded_at"] = now
+    approval["feedback"] = req.feedback
+    
+    # Call callback if configured
+    if approval.get("callback_url"):
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                await client.post(approval["callback_url"], json={
+                    "approval_id": req.approval_id,
+                    "approved": req.approved,
+                    "feedback": req.feedback,
+                })
+        except:
+            pass
+    
+    return {
+        "approval_id": req.approval_id,
+        "status": approval["status"],
+        "message": f"Action {'approved' if req.approved else 'rejected'}: {approval['action']}",
+    }
+
+@app.get("/v1/approval/pending")
+async def list_pending_approvals():
+    """列出待审批请求"""
+    now = time.time()
+    # Clean expired
+    expired = [k for k, v in PENDING_APPROVALS.items() if now > v["expires_at"]]
+    for k in expired:
+        PENDING_APPROVALS[k]["status"] = "expired"
+    
+    pending = [v for v in PENDING_APPROVALS.values() if v["status"] == "pending"]
+    return {"pending": pending, "count": len(pending)}
+
+# ══════════════════════════════════════
+# Factor 11: Webhook — 任意触发
+# ══════════════════════════════════════
+
+# In-memory webhook store (use DB in production)
+WEBHOOKS = {}
+CRON_JOBS = {}
+
+class WebhookRegister(BaseModel):
+    url: str
+    secret: Optional[str] = None
+    events: List[str] = ["*"]  # event types to listen for
+    description: Optional[str] = None
+
+@app.post("/v1/webhooks")
+async def register_webhook(wh: WebhookRegister):
+    """注册 Webhook 接收端"""
+    webhook_id = f"wh_{hashlib.md5(wh.url.encode()).hexdigest()[:8]}"
+    WEBHOOKS[webhook_id] = {
+        "id": webhook_id,
+        "url": wh.url,
+        "secret": wh.secret,
+        "events": wh.events,
+        "description": wh.description,
+        "created_at": time.time(),
+    }
+    return {"webhook_id": webhook_id, "url": wh.url, "events": wh.events}
+
+@app.post("/v1/webhooks/{webhook_id}/test")
+async def test_webhook(webhook_id: str):
+    """测试 Webhook"""
+    wh = WEBHOOKS.get(webhook_id)
+    if not wh:
+        raise HTTPException(status_code=404)
+    
+    payload = {
+        "event": "test",
+        "timestamp": time.time(),
+        "data": {"message": "This is a test webhook from AiLex Gateway"},
+    }
+    
+    signature = ""
+    if wh.get("secret"):
+        signature = hmac.new(wh["secret"].encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
+    
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                wh["url"],
+                json=payload,
+                headers={
+                    "X-Webhook-Signature": signature,
+                    "X-Webhook-Event": "test",
+                },
+            )
+            return {"status": resp.status_code, "success": resp.status_code < 400}
+    except Exception as e:
+        return {"status": "error", "error": str(e)[:200]}
+
+@app.post("/v1/webhooks/{webhook_id}/trigger")
+async def trigger_webhook(webhook_id: str, event: str = "custom", data: dict = None):
+    """触发 Webhook 事件"""
+    wh = WEBHOOKS.get(webhook_id)
+    if not wh:
+        raise HTTPException(status_code=404)
+    
+    if "*" not in wh["events"] and event not in wh["events"]:
+        return {"skipped": True, "reason": f"Event '{event}' not subscribed"}
+    
+    payload = {
+        "event": event,
+        "timestamp": time.time(),
+        "data": data or {},
+    }
+    
+    signature = ""
+    if wh.get("secret"):
+        signature = hmac.new(wh["secret"].encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
+    
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                wh["url"],
+                json=payload,
+                headers={
+                    "X-Webhook-Signature": signature,
+                    "X-Webhook-Event": event,
+                },
+            )
+            return {"status": resp.status_code, "success": resp.status_code < 400}
+    except Exception as e:
+        return {"status": "error", "error": str(e)[:200]}
+
+# ══════════════════════════════════════
+# Factor 11: Cron — 定时任务
+# ══════════════════════════════════════
+
+class CronJob(BaseModel):
+    name: str
+    schedule: str  # cron expression: "*/5 * * * *"
+    webhook_url: str
+    payload: Optional[dict] = None
+    enabled: bool = True
+
+@app.post("/v1/cron")
+async def create_cron(cron: CronJob):
+    """创建定时任务"""
+    job_id = f"cron_{hashlib.md5(cron.name.encode()).hexdigest()[:8]}"
+    CRON_JOBS[job_id] = {
+        "id": job_id,
+        "name": cron.name,
+        "schedule": cron.schedule,
+        "webhook_url": cron.webhook_url,
+        "payload": cron.payload or {},
+        "enabled": cron.enabled,
+        "last_run": None,
+        "created_at": time.time(),
+    }
+    return {
+        "cron_id": job_id,
+        "name": cron.name,
+        "schedule": cron.schedule,
+        "note": "Cron jobs need an external scheduler (e.g., systemd timer / k8s cronjob) to fire. See docs.",
+    }
+
+@app.get("/v1/cron")
+async def list_cron():
+    """列出定时任务"""
+    return {"cron_jobs": list(CRON_JOBS.values())}
+
+@app.get("/v1/cron/next-runs")
+async def next_cron_runs():
+    """计算下次运行时间（仅显示配置）"""
+    return {
+        "note": "Cron jobs fire based on external scheduler.",
+        "jobs": [{"id": k, "name": v["name"], "schedule": v["schedule"], "enabled": v["enabled"]}
+                 for k, v in CRON_JOBS.items()]
+    }
 
 @app.get("/v1/dashboard/stats")
 async def dashboard_stats():

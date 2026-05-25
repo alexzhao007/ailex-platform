@@ -68,9 +68,11 @@ docker compose up -d
 | 4 Tools=Structured | ✅ | JSON Schema 工具定义 |
 | 5 统一状态 | ✅ | Memory SQLite 持久化 |
 | 6 暂停/恢复 | ✅ | pause/resume API |
+| 7 人类介入 | ✅ | approval 请求/响应系统 |
+| 8 控制流 | ✅ | 显式路由逻辑 |
 | 9 压缩错误 | ✅ | 结构化错误响应 |
-| 10 小聚焦 Agent | ⚠️ | 多Agent编排推进中 |
-| 11 任意触发 | ⚠️ | Webhook推进中 |
+| 10 小聚焦 Agent | ✅ | DAG 多Agent编排引擎 |
+| 11 任意触发 | ✅ | Webhook + Cron 定时任务 |
 | 12 无状态 | ✅ | Memory 纯函数设计 |
 
 ## 开源许可

@@ -139,12 +139,34 @@ services:
     networks:
       - ailex
 
+
+  # =================================================
+  # AiLex Orchestrator — 多Agent编排引擎 (Factor 10)
+  # =================================================
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: ailex-orchestrator
+    ports:
+      - "${ORCH_PORT:-8095}:8095"
+    environment:
+      - ORCH_DB_PATH=/app/data/orch.db
+      - MMI_API_KEY=${MMI_API_KEY}
+      - MMI_BASE_URL=${MMI_BASE_URL:-https://millionengine.com/v1}
+    volumes:
+      - orch_data:/app/data
+    restart: unless-stopped
+    networks:
+      - ailex
+
 networks:
       - ailex
 
 
   # ==================================
   billing_data:
+  orch_data:
 volumes:
   gateway_data:
   openclaw_data:

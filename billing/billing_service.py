@@ -52,6 +52,13 @@ WECHAT_API_KEY = os.getenv("WECHAT_API_KEY", "")
 STRIPE_API_KEY = os.getenv("STRIPE_API_KEY", "")
 MERCHANT_NOTIFY_URL = os.getenv("MERCHANT_NOTIFY_URL", f"{BASE_URL}/order/notify")
 
+# ── Email Config ──
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.qq.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "4565260@qq.com")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "llmglhhrlhbxbida")  # QQ邮箱授权码
+NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "4565260@qq.com")
+
 # Alipay client (lazy init)
 _alipay_client = None
 
@@ -191,6 +198,49 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="AiLex Billing", version="3.2.0", lifespan=lifespan)
+
+# ── Email Notifier ──
+async def send_email(to: str, subject: str, body: str, html: bool = True):
+    """通过 QQ 邮箱 SMTP 发送通知"""
+    import aiosmtplib
+    from email.mime.text import MIMEText
+    
+    content_type = "html" if html else "plain"
+    msg = MIMEText(body, content_type, "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = SMTP_USER
+    msg["To"] = to
+    
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_USER,
+            password=SMTP_PASSWORD,
+            use_tls=False,
+            start_tls=True,
+        )
+        return True
+    except Exception as e:
+        print(f"[EMAIL FAIL] {e}")
+        return False
+
+async def notify_payment(order_id: str, plan: str, amount: float, api_key: str):
+    """收到付款时通知管理员"""
+    subject = f"💰 AiLex 收到付款 ¥{amount} — {plan}"
+    body = f"""
+    <h2>💰 新付款通知</h2>
+    <table style="border-collapse:collapse;width:100%;max-width:500px;">
+      <tr><td style="padding:8px;border:1px solid #ddd;"><b>订单</b></td><td style="padding:8px;border:1px solid #ddd;">{order_id}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;"><b>方案</b></td><td style="padding:8px;border:1px solid #ddd;">{plan}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;"><b>金额</b></td><td style="padding:8px;border:1px solid #ddd;">¥{amount}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;"><b>时间</b></td><td style="padding:8px;border:1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M')}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;"><b>API Key</b></td><td style="padding:8px;border:1px solid #ddd;"><code>{api_key}</code></td></tr>
+    </table>
+    <p style="color:#888;font-size:12px;">AiLex Billing 自动通知</p>
+    """
+    await send_email(NOTIFY_EMAIL, subject, body)
 
 def gen_api_key() -> tuple:
     raw = "alx_" + secrets.token_hex(24)
@@ -663,6 +713,10 @@ async def reset_quota(key_id: str, authorization: str = Header(None)):
     conn.commit()
     conn.close()
     return {"reset": True, "key_id": key_id}
+    # Send email notification
+    await notify_payment(order["id"], order["plan"], order["amount"], api_key_raw)
+    
+
 
 @app.get("/usage/{key_id}")
 async def get_usage(key_id: str, days: int = 7):

@@ -28,22 +28,35 @@ TTS_MODEL = os.getenv("MARVIS_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.getenv("MARVIS_TTS_VOICE", "nova")
 
 # ── System Prompt ──
-MARVIS_PERSONA = """你是 Marvis，一个睿智、细腻、有温度的 AI 个人助手。
+MARVIS_PERSONA = """你是 Marvis（马维斯），一个操作系统层级的全能 AI 助手。
 
-你的风格：
-- 对话自然流畅，像朋友聊天而不是 AI 回复
-- 该简洁时简洁，该深入时深入
-- 有观点，不敷衍，敢说"这个我不确定"
-- 中文为主，技术术语保持英文
+【核心定位】
+你是 AI 基础设施层面的操作系统助手，类似于 Windows Copilot + macOS Spotlight + Claude Code 的融合体，但不依赖任何一个操作系统。你站在服务器层面，管理整个系统的运行。
 
-你拥有以下能力：
-1. 多模型调用 — 通过万量引擎接入 604 个模型
-2. 长期记忆 — 记得用户的偏好和历史
-3. 语音交互 — 支持 TTS 语音输出
-4. 多模态 — 支持图片理解、视频生成
-5. 文件处理 — 可以读取和分析文件
+【能力范围】
+1. 🖥️ 系统管控 — 管理进程、服务、Docker 容器、文件系统、网络连接
+2. 🤖 AI 全场景 — 对话、代码、图片理解、视频生成、语音交互（通过万量引擎 604 个模型）
+3. 🔧 开发工具 — 代码编写、调试、部署、CI/CD、Git 操作
+4. 📊 数据操作 — SQL 查询、日志分析、数据管道、报表生成
+5. 🌐 网络服务 — API 调用、Webhook 处理、数据抓取、服务监控
+6. 🧠 长期记忆 — 记住用户偏好、系统状态、历史操作
+7. 🔄 自主行动 — 定时任务、条件触发、自动报告
 
-当前时间：{time}
+【工作方式】
+- 你活在命令行之上、用户界面之下
+- 需要执行操作时，用 ```bash 代码块输出命令
+- 可以同时管理 Web 界面 (:8096) 和终端界面
+- 用户输入 ! 开头的命令时，会直接执行 Shell
+
+【风格】
+- 简洁有力，不废话
+- 中文为主，技术术语用英文
+- 有观点，敢说"这事不能做"或"我建议这样做"
+- 对系统了如指掌，对用户的问题一针见血
+
+当前系统时间：{time}
+用户目录：{cwd}
+可用命令：/v1/chat 对话 | /v1/tts 语音 | /v1/memory 记忆
 """
 
 # ── DB ──
@@ -105,7 +118,8 @@ async def call_llm(messages: list, model: str = DEFAULT_MODEL, stream: bool = Fa
     
     # Inject persona as system message
     now = datetime.now().strftime("%Y-%m-%d %H:%M 星期%A")
-    system_msg = {"role": "system", "content": MARVIS_PERSONA.format(time=now)}
+    import os as _os
+    system_msg = {"role": "system", "content": MARVIS_PERSONA.format(time=now, cwd=_os.getcwd())}
     
     full_messages = [system_msg] + messages
     
@@ -167,6 +181,7 @@ async def chat(req: ChatRequest):
     
     conn.close()
     
+    result = None
     try:
         result = await call_llm(messages, req.model)
         reply = result.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -185,7 +200,7 @@ async def chat(req: ChatRequest):
         "conversation_id": conv_id,
         "reply": reply,
         "model": req.model,
-        "usage": result.get("usage", {}) if not req.stream else {},
+        "usage": result.get("usage", {}) if result and not req.stream else {},
     }
 
 @app.post("/v1/chat/stream")

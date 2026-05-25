@@ -160,6 +160,28 @@ services:
     networks:
       - ailex
 
+
+  # =================================================
+  # Marvis — AI 个人助手
+  # =================================================
+  marvis:
+    build:
+      context: ./marvis
+      dockerfile: Dockerfile
+    container_name: marvis
+    ports:
+      - "${MARVIS_PORT:-8096}:8096"
+    environment:
+      - MARVIS_DB=/app/data/marvis.db
+      - MMI_API_KEY=${MMI_API_KEY}
+      - MMI_BASE_URL=${MMI_BASE_URL:-https://millionengine.com/v1}
+      - MARVIS_MODEL=${MARVIS_MODEL:-gpt-4o}
+    volumes:
+      - marvis_data:/app/data
+    restart: unless-stopped
+    networks:
+      - ailex
+
 networks:
       - ailex
 
@@ -167,6 +189,7 @@ networks:
   # ==================================
   billing_data:
   orch_data:
+  marvis_data:
 volumes:
   gateway_data:
   openclaw_data:

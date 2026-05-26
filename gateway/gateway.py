@@ -505,3 +505,62 @@ async def dashboard_stats():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
+
+# ══════════════════════════════════════
+# Factor 7 EXT: 多渠道通知网关
+# ══════════════════════════════════════
+
+# 企业微信 Bot Webhook
+WECOM_BOT_URL = os.getenv("WECOM_BOT_URL", "")
+WECOM_APP_NOTIFY = os.getenv("WECOM_APP_NOTIFY", "")
+
+def get_notify_channels():
+    """获取配置的通知渠道"""
+    channels = []
+    if WECOM_BOT_URL:
+        channels.append("wecom_bot")
+    if WECOM_APP_NOTIFY:
+        channels.append("wecom_app")
+    channels.append("callback")  # callback 始终可用
+    return channels
+
+@app.get("/v1/notify/channels")
+async def list_notify_channels():
+    """列出已配置的通知渠道"""
+    return {
+        "channels": get_notify_channels(),
+        "note": "Channels are configured via environment variables (WECOM_BOT_URL, WECOM_APP_NOTIFY)"
+    }
+
+async def notify_wecom_bot(action: str, context: dict, approval_id: str):
+    """通过企业微信群机器人发送审批通知"""
+    if not WECOM_BOT_URL:
+        return False
+    try:
+        msg = {
+            "msgtype": "markdown",
+            "markdown": {
+                "content": (
+                    f"### 🤖 AiLex 请求审批\n"
+                    f"**操作**: {action}\n"
+                    f"**审批ID**: {approval_id}\n"
+                    f"**上下文**: {json.dumps(context, ensure_ascii=False)[:500]}\n"
+                    f"\n"
+                    f"**审批链接**: http://127.0.0.1:8080/v1/approval/respond?approval_id={approval_id}\n"
+                    f"\n"
+                    f"> 使用 `POST /v1/approval/respond` 审批\n"
+                    f"> `{{\"approval_id\":\"{approval_id}\", \"approved\": true, \"feedback\":\"ok\"}}`"
+                )
+            }
+        }
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(WECOM_BOT_URL, json=msg)
+            return resp.status_code == 200
+    except Exception as e:
+        print(f"[WECOM_BOT] notify failed: {e}")
+        return False
+
+# 给 request_approval 增加通知 (patch 原函数)
+# 在 approval 创建后自动通知
+ORIG_REQUEST_APPROVAL = request_approval
+

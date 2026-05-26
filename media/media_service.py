@@ -84,6 +84,27 @@ async def call_millionengine(model: str, payload: dict, endpoint: str = "chat/co
             raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
         return resp.json()
 
+
+# ── Video model routing ──
+# Some models (veo_3_1, veo3.1, etc.) use chat/completions for async video submission
+# kling-video goes through a different routing on millionengine
+VIDEO_CHAT_MODELS = ["veo_3_1", "veo3.1", "veo3.1-fast", "veo_3_1-fast",
+                     "veo3.1-pro", "veo3.1-4k", "veo_3_1-4K",
+                     "veo3.1-components", "veo_3_1-components",
+                     "sora-2", "sora-2-pro"]
+
+async def submit_video_task(model: str, prompt: str, **kwargs) -> dict:
+    """Submit video generation task via millionengine"""
+    content = f"Generate a video: {prompt}"
+    if kwargs.get("duration"):
+        content = f"Generate a {kwargs['duration']} second video: {prompt}"
+    
+    result = await call_millionengine(model, {
+        "messages": [{"role": "user", "content": content}],
+        "n": 1,
+    })
+    return result
+
 # ── Routes ──
 
 @app.get("/health")
@@ -135,32 +156,46 @@ async def generate_video(req: VideoRequest):
     # Model auto-selection
     if model == "auto":
         if "realistic" in (req.style or ""):
-            model = "kling-video"
+            model = "veo_3_1"
         elif "anime" in (req.style or ""):
-            model = "veo3.1"
+            model = "veo_3_1"
         else:
-            model = "viduq2"  # balanced default
-    
-    payload = {
-        "prompt": req.prompt,
-        **({"negative_prompt": req.negative_prompt} if req.negative_prompt else {}),
-        **({"duration": req.duration} if req.duration else {}),
-        **({"style": req.style} if req.style else {}),
-        **({"aspect_ratio": req.aspect_ratio} if req.aspect_ratio else {}),
-        **({"seed": req.seed} if req.seed else {}),
-        "n": 1,
-    }
+            model = "veo_3_1"  # best quality default
     
     try:
-        result = await call_millionengine(model, {"messages": [{
-            "role": "user", "content": f"Generate video: {json.dumps(payload)}"
-        }]})
+        # Use chat-based submission for veo models
+        if model in VIDEO_CHAT_MODELS:
+            result = await submit_video_task(model, req.prompt, duration=req.duration)
+        else:
+            payload = json.dumps({
+                "prompt": req.prompt,
+                "duration": req.duration,
+                "style": req.style or "cinematic",
+            })
+            result = await call_millionengine(model, {"messages": [{
+                "role": "user", "content": f"Generate video: {payload}"
+            }]})
+        
         stats["videos_generated"] += 1
+        
+        # Extract task info if present
+        task_info = {}
+        if result.get("choices"):
+            content = result["choices"][0]["message"]["content"]
+            import re
+            task_match = re.search(r'task_id:\s*(\S+)', content)
+            status_match = re.search(r'status:\s*(\S+)', content)
+            if task_match:
+                task_info["task_id"] = task_match.group(1)
+            if status_match:
+                task_info["status"] = status_match.group(1)
+        
         return {
             "status": "success",
             "model": model,
             "prompt": req.prompt,
-            "result": result,
+            "task_info": task_info,
+            "raw_result": result,
             "generated_at": time.time(),
         }
     except Exception as e:
